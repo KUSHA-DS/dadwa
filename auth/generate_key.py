@@ -1,0 +1,12 @@
+import secrets
+import string
+
+
+def generate_api_key(length: int = 32) -> str:
+    """Generate a random API key."""
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+
+if __name__ == "__main__":
+    print(f"Generated API Key: {generate_api_key()}")
