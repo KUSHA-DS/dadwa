@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} - Boxing Store{% endblock %}
+
+{% block content %}
+<div class="form-container">
+    <div class="form-header">
+        <h2>{{ title }}</h2>
+        <a href="{{ url_for('index') }}" class="btn-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </a>
+    </div>
+    
+    <form method="POST" class="form-body">
+        <div class="form-group">
+            <label for="name">Emri i Produktit *</label>
+            <input 
+                type="text" 
+                id="name" 
+                name="name" 
+                required 
+                value="{{ product.name if product else '' }}"
+                placeholder="p.sh. Doreza Everlast Pro"
+            >
+        </div>
+        
+        <div class="form-group">
+            <label for="category">Kategoria *</label>
+            <select id="category" name="category" required>
+                {% for cat in categories %}
+                    <option value="{{ cat.value }}" {% if product and product.category == cat.value %}selected{% endif %}>
+                        {{ cat.label }}
+                    </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label for="size">Madhesia</label>
+                <input 
+                    type="text" 
+                    id="size" 
+                    name="size" 
+                    value="{{ product.size if product and product.size else '' }}"
+                    placeholder="p.sh. M, L, 12oz"
+                >
+            </div>
+            <div class="form-group">
+                <label for="color">Ngjyra</label>
+                <input 
+                    type="text" 
+                    id="color" 
+                    name="color" 
+                    value="{{ product.color if product and product.color else '' }}"
+                    placeholder="p.sh. Zi, Kuqe"
+                >
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="image_url">URL e Fotos</label>
+            <input 
+                type="url" 
+                id="image_url" 
+                name="image_url" 
+                value="{{ product.image_url if product and product.image_url else '' }}"
+                placeholder="https://example.com/foto.jpg"
+            >
+        </div>
+        
+        <div class="form-row-3">
+            <div class="form-group">
+                <label for="price">Cmimi (&euro;) *</label>
+                <input 
+                    type="number" 
+                    id="price" 
+                    name="price" 
+                    required 
+                    step="0.01" 
+                    min="0"
+                    value="{{ product.price if product else '' }}"
+                    placeholder="0.00"
+                >
+            </div>
+            <div class="form-group">
+                <label for="stock">Stoku *</label>
+                <input 
+                    type="number" 
+                    id="stock" 
+                    name="stock" 
+                    required 
+                    min="0"
+                    value="{{ product.stock if product else '0' }}"
+                    placeholder="0"
+                >
+            </div>
+            <div class="form-group">
+                <label for="min_stock">Min Stok</label>
+                <input 
+                    type="number" 
+                    id="min_stock" 
+                    name="min_stock" 
+                    min="0"
+                    value="{{ product.min_stock if product else '5' }}"
+                    placeholder="5"
+                >
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="description">Pershkrimi</label>
+            <textarea 
+                id="description" 
+                name="description" 
+                rows="3"
+                placeholder="Pershkrim opsional i produktit..."
+            >{{ product.description if product and product.description else '' }}</textarea>
+        </div>
+        
+        <div class="form-actions">
+            <a href="{{ url_for('index') }}" class="btn btn-secondary">Anulo</a>
+            <button type="submit" class="btn btn-primary">
+                {% if product %}
+                    Ruaj Ndryshimet
+                {% else %}
+                    Shto Produktin
+                {% endif %}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

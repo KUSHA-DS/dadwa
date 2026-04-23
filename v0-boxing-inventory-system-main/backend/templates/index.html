@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Stats Cards -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon primary">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+            </svg>
+        </div>
+        <div>
+            <p class="stat-label">Produkte Totale</p>
+            <p class="stat-value">{{ stats.total_products }}</p>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon primary">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+            </svg>
+        </div>
+        <div>
+            <p class="stat-label">Stok Total</p>
+            <p class="stat-value">{{ stats.total_stock }}</p>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon warning">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+        </div>
+        <div>
+            <p class="stat-label">Stok i Ulet</p>
+            <p class="stat-value">{{ stats.low_stock_count }}</p>
+        </div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-icon primary">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+        </div>
+        <div>
+            <p class="stat-label">Vlera Totale</p>
+            <p class="stat-value">&euro;{{ "%.2f"|format(stats.total_value) }}</p>
+        </div>
+    </div>
+</div>
+
+<!-- Search and Filters -->
+<form method="GET" action="{{ url_for('index') }}" class="filters">
+    <input 
+        type="text" 
+        name="search" 
+        class="search-input" 
+        placeholder="Kerko produkte..." 
+        value="{{ search }}"
+    >
+    <select name="category" onchange="this.form.submit()">
+        <option value="">Te gjitha kategorite</option>
+        {% for cat in categories %}
+            <option value="{{ cat.value }}" {% if category_filter == cat.value %}selected{% endif %}>
+                {{ cat.label }}
+            </option>
+        {% endfor %}
+    </select>
+    <button type="submit" class="btn btn-secondary">Kerko</button>
+    <a href="{{ url_for('add_product') }}" class="btn btn-primary">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+        </svg>
+        Shto Produkt
+    </a>
+</form>
+
+<!-- Products Table -->
+<div class="table-container">
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Foto</th>
+                    <th>Produkti</th>
+                    <th>Kategoria</th>
+                    <th>Madhesia</th>
+                    <th>Cmimi</th>
+                    <th>Stoku</th>
+                    <th>Veprimet</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if products|length == 0 %}
+                    <tr>
+                        <td colspan="7" class="empty-state">Nuk u gjeten produkte</td>
+                    </tr>
+                {% else %}
+                    {% for product in products %}
+                        <tr>
+                            <td>
+                                <div class="product-image">
+                                    {% if product.image_url %}
+                                        <img src="{{ product.image_url }}" alt="{{ product.name }}">
+                                    {% else %}
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="product-name">{{ product.name }}</div>
+                                {% if product.color %}
+                                    <div class="product-color">{{ product.color }}</div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <span class="badge badge-category">{{ get_category_label(product.category) }}</span>
+                            </td>
+                            <td>{{ product.size or '-' }}</td>
+                            <td>&euro;{{ "%.2f"|format(product.price) }}</td>
+                            <td>
+                                {% set min_stock = product.min_stock or 5 %}
+                                {% if product.stock <= min_stock %}
+                                    <span class="badge badge-stock danger">{{ product.stock }}</span>
+                                {% elif product.stock <= min_stock * 2 %}
+                                    <span class="badge badge-stock warning">{{ product.stock }}</span>
+                                {% else %}
+                                    <span class="badge badge-stock success">{{ product.stock }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="actions">
+                                    <form method="POST" action="{{ url_for('update_stock', product_id=product.id, action='remove') }}" style="display: inline;">
+                                        <button type="submit" class="btn-icon" title="Hiq nga stoku" {% if product.stock <= 0 %}disabled{% endif %}>
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
+                                            </svg>
+                                        </button>
+                                    </form>
+                                    <form method="POST" action="{{ url_for('update_stock', product_id=product.id, action='add') }}" style="display: inline;">
+                                        <button type="submit" class="btn-icon" title="Shto ne stok">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                            </svg>
+                                        </button>
+                                    </form>
+                                    <a href="{{ url_for('edit_product', product_id=product.id) }}" class="btn-icon" title="Ndrysho">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                    </a>
+                                    <form method="POST" action="{{ url_for('delete_product', product_id=product.id) }}" style="display: inline;" onsubmit="return confirm('A je i sigurt qe deshiron ta fshish kete produkt?');">
+                                        <button type="submit" class="btn-icon danger" title="Fshij">
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                            </svg>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

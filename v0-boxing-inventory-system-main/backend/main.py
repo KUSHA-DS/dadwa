@@ -1,24 +1,27 @@
-import fastapi
-import fastapi.middleware.cors
-from pydantic import BaseModel
-from typing import Optional
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 import sqlite3
 import os
 from contextlib import contextmanager
 from datetime import datetime
 
-app = fastapi.FastAPI()
-
-app.add_middleware(
-    fastapi.middleware.cors.CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = Flask(__name__)
+app.secret_key = 'boxing-shop-secret-key-2024'
 
 # Database path
 DB_PATH = os.path.join(os.path.dirname(__file__), "boxing_shop.db")
+
+# Categories
+CATEGORIES = [
+    {"value": "doreza", "label": "Doreza Boksi"},
+    {"value": "tesha", "label": "Tesha Boksi"},
+    {"value": "atlete", "label": "Atlete"},
+    {"value": "pantallona", "label": "Pantallona"},
+    {"value": "koka", "label": "Mbrojtese Koke"},
+    {"value": "dhembe", "label": "Mbrojtese Dhembesh"},
+    {"value": "traste", "label": "Traste Boksi"},
+    {"value": "thes", "label": "Thes Boksi"},
+    {"value": "tjeter", "label": "Tjeter"},
+]
 
 
 @contextmanager
@@ -46,6 +49,7 @@ def init_db():
                 category TEXT NOT NULL,
                 price REAL NOT NULL,
                 stock INTEGER NOT NULL DEFAULT 0,
+                min_stock INTEGER NOT NULL DEFAULT 5,
                 size TEXT,
                 color TEXT,
                 image_url TEXT,
@@ -67,34 +71,6 @@ def init_db():
             )
         """)
         
-        # Categories table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS categories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                description TEXT
-            )
-        """)
-        
-        # Insert default categories
-        default_categories = [
-            ("Doreza", "Doreza boksi - profesionale dhe amatore"),
-            ("Tesha", "Tesha boksi - shorte dhe bluza"),
-            ("Atlete", "Atlete boksi - speciale per ring"),
-            ("Koka", "Mbrojtese koke dhe helmet"),
-            ("Thes", "Thes boksi dhe pajisje stervitje"),
-            ("Aksesor", "Aksesorë të ndryshëm boksi")
-        ]
-        
-        for cat_name, cat_desc in default_categories:
-            try:
-                cursor.execute(
-                    "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)",
-                    (cat_name, cat_desc)
-                )
-            except sqlite3.IntegrityError:
-                pass
-        
         conn.commit()
 
 
@@ -102,272 +78,209 @@ def init_db():
 init_db()
 
 
-# Pydantic models
-class ProductCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-    category: str
-    price: float
-    stock: int = 0
-    size: Optional[str] = None
-    color: Optional[str] = None
-    image_url: Optional[str] = None
+def get_stats():
+    """Get dashboard statistics."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) as count FROM products")
+        total_products = cursor.fetchone()["count"]
+        
+        cursor.execute("SELECT COALESCE(SUM(stock), 0) as total FROM products")
+        total_stock = cursor.fetchone()["total"]
+        
+        cursor.execute("SELECT COUNT(*) as count FROM products WHERE stock <= min_stock")
+        low_stock_count = cursor.fetchone()["count"]
+        
+        cursor.execute("SELECT COALESCE(SUM(price * stock), 0) as value FROM products")
+        total_value = cursor.fetchone()["value"]
+        
+        return {
+            "total_products": total_products,
+            "total_stock": total_stock,
+            "low_stock_count": low_stock_count,
+            "total_value": round(total_value, 2)
+        }
 
 
-class ProductUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
-    category: Optional[str] = None
-    price: Optional[float] = None
-    stock: Optional[int] = None
-    size: Optional[str] = None
-    color: Optional[str] = None
-    image_url: Optional[str] = None
+def get_category_label(value):
+    """Get category label from value."""
+    for cat in CATEGORIES:
+        if cat["value"] == value:
+            return cat["label"]
+    return value
 
 
-class StockChange(BaseModel):
-    amount: int
-    change_type: str  # "add" or "remove"
-    notes: Optional[str] = None
-
-
-class CategoryCreate(BaseModel):
-    name: str
-    description: Optional[str] = None
-
-
-# API Routes
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.get("/products")
-async def get_products(category: Optional[str] = None, search: Optional[str] = None):
-    """Get all products with optional filtering."""
+@app.route("/")
+def index():
+    """Main page - show all products."""
+    search = request.args.get("search", "")
+    category = request.args.get("category", "")
+    
     with get_db() as conn:
         cursor = conn.cursor()
         query = "SELECT * FROM products WHERE 1=1"
         params = []
         
-        if category:
-            query += " AND category = ?"
-            params.append(category)
-        
         if search:
             query += " AND (name LIKE ? OR description LIKE ?)"
             params.extend([f"%{search}%", f"%{search}%"])
         
+        if category:
+            query += " AND category = ?"
+            params.append(category)
+        
         query += " ORDER BY created_at DESC"
         cursor.execute(query, params)
         products = [dict(row) for row in cursor.fetchall()]
-        return products
+    
+    stats = get_stats()
+    
+    return render_template("index.html", 
+                         products=products, 
+                         stats=stats, 
+                         categories=CATEGORIES,
+                         search=search,
+                         category_filter=category,
+                         get_category_label=get_category_label)
 
 
-@app.get("/products/{product_id}")
-async def get_product(product_id: int):
-    """Get a single product by ID."""
+@app.route("/product/add", methods=["GET", "POST"])
+def add_product():
+    """Add a new product."""
+    if request.method == "POST":
+        name = request.form.get("name")
+        category = request.form.get("category")
+        size = request.form.get("size") or None
+        color = request.form.get("color") or None
+        price = float(request.form.get("price", 0))
+        stock = int(request.form.get("stock", 0))
+        min_stock = int(request.form.get("min_stock", 5))
+        image_url = request.form.get("image_url") or None
+        description = request.form.get("description") or None
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO products (name, description, category, price, stock, min_stock, size, color, image_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (name, description, category, price, stock, min_stock, size, color, image_url))
+            
+            product_id = cursor.lastrowid
+            
+            if stock > 0:
+                cursor.execute("""
+                    INSERT INTO stock_history (product_id, change_amount, change_type, notes)
+                    VALUES (?, ?, ?, ?)
+                """, (product_id, stock, "add", "Stok fillestar"))
+            
+            conn.commit()
+        
+        flash("Produkti u shtua me sukses!", "success")
+        return redirect(url_for("index"))
+    
+    return render_template("product_form.html", 
+                         product=None, 
+                         categories=CATEGORIES,
+                         title="Shto Produkt te Ri")
+
+
+@app.route("/product/edit/<int:product_id>", methods=["GET", "POST"])
+def edit_product(product_id):
+    """Edit an existing product."""
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
         product = cursor.fetchone()
+        
         if not product:
-            raise fastapi.HTTPException(status_code=404, detail="Produkti nuk u gjet")
-        return dict(product)
-
-
-@app.post("/products")
-async def create_product(product: ProductCreate):
-    """Create a new product."""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """INSERT INTO products (name, description, category, price, stock, size, color, image_url)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (product.name, product.description, product.category, product.price,
-             product.stock, product.size, product.color, product.image_url)
-        )
-        conn.commit()
-        product_id = cursor.lastrowid
+            flash("Produkti nuk u gjet!", "error")
+            return redirect(url_for("index"))
         
-        # Add initial stock history if stock > 0
-        if product.stock > 0:
-            cursor.execute(
-                """INSERT INTO stock_history (product_id, change_amount, change_type, notes)
-                   VALUES (?, ?, ?, ?)""",
-                (product_id, product.stock, "add", "Stok fillestar")
-            )
+        product = dict(product)
+    
+    if request.method == "POST":
+        name = request.form.get("name")
+        category = request.form.get("category")
+        size = request.form.get("size") or None
+        color = request.form.get("color") or None
+        price = float(request.form.get("price", 0))
+        stock = int(request.form.get("stock", 0))
+        min_stock = int(request.form.get("min_stock", 5))
+        image_url = request.form.get("image_url") or None
+        description = request.form.get("description") or None
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE products 
+                SET name=?, description=?, category=?, price=?, stock=?, min_stock=?, size=?, color=?, image_url=?, updated_at=?
+                WHERE id=?
+            """, (name, description, category, price, stock, min_stock, size, color, image_url, datetime.now().isoformat(), product_id))
             conn.commit()
         
-        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-        return dict(cursor.fetchone())
+        flash("Produkti u ndryshua me sukses!", "success")
+        return redirect(url_for("index"))
+    
+    return render_template("product_form.html", 
+                         product=product, 
+                         categories=CATEGORIES,
+                         title="Ndrysho Produktin")
 
 
-@app.put("/products/{product_id}")
-async def update_product(product_id: int, product: ProductUpdate):
-    """Update a product."""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        
-        # Get current product
-        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-        existing = cursor.fetchone()
-        if not existing:
-            raise fastapi.HTTPException(status_code=404, detail="Produkti nuk u gjet")
-        
-        # Build update query
-        updates = []
-        params = []
-        for field, value in product.model_dump(exclude_unset=True).items():
-            if value is not None:
-                updates.append(f"{field} = ?")
-                params.append(value)
-        
-        if updates:
-            updates.append("updated_at = ?")
-            params.append(datetime.now().isoformat())
-            params.append(product_id)
-            
-            query = f"UPDATE products SET {', '.join(updates)} WHERE id = ?"
-            cursor.execute(query, params)
-            conn.commit()
-        
-        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-        return dict(cursor.fetchone())
-
-
-@app.delete("/products/{product_id}")
-async def delete_product(product_id: int):
+@app.route("/product/delete/<int:product_id>", methods=["POST"])
+def delete_product(product_id):
     """Delete a product."""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-        if not cursor.fetchone():
-            raise fastapi.HTTPException(status_code=404, detail="Produkti nuk u gjet")
-        
         cursor.execute("DELETE FROM stock_history WHERE product_id = ?", (product_id,))
         cursor.execute("DELETE FROM products WHERE id = ?", (product_id,))
         conn.commit()
-        return {"message": "Produkti u fshi me sukses"}
+    
+    flash("Produkti u fshi me sukses!", "success")
+    return redirect(url_for("index"))
 
 
-@app.post("/products/{product_id}/stock")
-async def update_stock(product_id: int, stock_change: StockChange):
-    """Update product stock (add or remove)."""
+@app.route("/product/stock/<int:product_id>/<action>", methods=["POST"])
+def update_stock(product_id, action):
+    """Update product stock (add or remove 1)."""
     with get_db() as conn:
         cursor = conn.cursor()
-        
-        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
+        cursor.execute("SELECT stock FROM products WHERE id = ?", (product_id,))
         product = cursor.fetchone()
+        
         if not product:
-            raise fastapi.HTTPException(status_code=404, detail="Produkti nuk u gjet")
+            flash("Produkti nuk u gjet!", "error")
+            return redirect(url_for("index"))
         
         current_stock = product["stock"]
         
-        if stock_change.change_type == "add":
-            new_stock = current_stock + stock_change.amount
-        elif stock_change.change_type == "remove":
-            new_stock = current_stock - stock_change.amount
-            if new_stock < 0:
-                raise fastapi.HTTPException(
-                    status_code=400,
-                    detail=f"Nuk keni stok të mjaftueshëm. Stoku aktual: {current_stock}"
-                )
+        if action == "add":
+            new_stock = current_stock + 1
+            change_type = "add"
+        elif action == "remove":
+            if current_stock <= 0:
+                flash("Nuk keni stok te mjaftueshem!", "error")
+                return redirect(url_for("index"))
+            new_stock = current_stock - 1
+            change_type = "remove"
         else:
-            raise fastapi.HTTPException(status_code=400, detail="Lloji i ndryshimit duhet të jetë 'add' ose 'remove'")
+            flash("Veprim i panjohur!", "error")
+            return redirect(url_for("index"))
         
-        # Update stock
-        cursor.execute(
-            "UPDATE products SET stock = ?, updated_at = ? WHERE id = ?",
-            (new_stock, datetime.now().isoformat(), product_id)
-        )
-        
-        # Record history
-        cursor.execute(
-            """INSERT INTO stock_history (product_id, change_amount, change_type, notes)
-               VALUES (?, ?, ?, ?)""",
-            (product_id, stock_change.amount, stock_change.change_type, stock_change.notes)
-        )
-        conn.commit()
-        
-        cursor.execute("SELECT * FROM products WHERE id = ?", (product_id,))
-        return dict(cursor.fetchone())
-
-
-@app.get("/products/{product_id}/history")
-async def get_stock_history(product_id: int):
-    """Get stock history for a product."""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            """SELECT * FROM stock_history WHERE product_id = ? ORDER BY created_at DESC""",
-            (product_id,)
-        )
-        history = [dict(row) for row in cursor.fetchall()]
-        return history
-
-
-@app.get("/categories")
-async def get_categories():
-    """Get all categories."""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM categories ORDER BY name")
-        categories = [dict(row) for row in cursor.fetchall()]
-        return categories
-
-
-@app.post("/categories")
-async def create_category(category: CategoryCreate):
-    """Create a new category."""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                "INSERT INTO categories (name, description) VALUES (?, ?)",
-                (category.name, category.description)
-            )
-            conn.commit()
-            category_id = cursor.lastrowid
-            cursor.execute("SELECT * FROM categories WHERE id = ?", (category_id,))
-            return dict(cursor.fetchone())
-        except sqlite3.IntegrityError:
-            raise fastapi.HTTPException(status_code=400, detail="Kategoria ekziston tashmë")
-
-
-@app.get("/stats")
-async def get_stats():
-    """Get dashboard statistics."""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        
-        # Total products
-        cursor.execute("SELECT COUNT(*) as count FROM products")
-        total_products = cursor.fetchone()["count"]
-        
-        # Total stock value
-        cursor.execute("SELECT SUM(price * stock) as value FROM products")
-        total_value = cursor.fetchone()["value"] or 0
-        
-        # Low stock products (less than 5)
-        cursor.execute("SELECT COUNT(*) as count FROM products WHERE stock < 5")
-        low_stock = cursor.fetchone()["count"]
-        
-        # Out of stock
-        cursor.execute("SELECT COUNT(*) as count FROM products WHERE stock = 0")
-        out_of_stock = cursor.fetchone()["count"]
-        
-        # Products by category
         cursor.execute("""
-            SELECT category, COUNT(*) as count, SUM(stock) as total_stock
-            FROM products GROUP BY category
-        """)
-        by_category = [dict(row) for row in cursor.fetchall()]
+            UPDATE products SET stock = ?, updated_at = ? WHERE id = ?
+        """, (new_stock, datetime.now().isoformat(), product_id))
         
-        return {
-            "total_products": total_products,
-            "total_value": round(total_value, 2),
-            "low_stock": low_stock,
-            "out_of_stock": out_of_stock,
-            "by_category": by_category
-        }
+        cursor.execute("""
+            INSERT INTO stock_history (product_id, change_amount, change_type, notes)
+            VALUES (?, ?, ?, ?)
+        """, (product_id, 1, change_type, "Ndryshim manual"))
+        
+        conn.commit()
+    
+    return redirect(url_for("index"))
+
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)
