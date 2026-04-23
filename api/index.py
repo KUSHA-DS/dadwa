@@ -7,8 +7,8 @@ from datetime import datetime
 app = Flask(__name__)
 app.secret_key = 'boxing-shop-secret-key-2024'
 
-# Database path
-DB_PATH = os.path.join(os.path.dirname(__file__), "boxing_shop.db")
+# Database path - use /tmp for Vercel serverless
+DB_PATH = "/tmp/boxing_shop.db"
 
 # Categories
 CATEGORIES = [
@@ -282,5 +282,5 @@ def update_stock(product_id, action):
     return redirect(url_for("index"))
 
 
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+# Export for Vercel
+application = app
